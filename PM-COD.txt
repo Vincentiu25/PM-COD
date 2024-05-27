@@ -1,0 +1,95 @@
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+
+#define DHTPIN 18
+#define DHTTYPE DHT11
+#define LED_PIN 19
+#define FAN_PIN 5
+
+// Replace with your network credentials
+const char* ssid = "ESP32-Access-Point";
+const char* password = "12345678";
+
+// Initialize DHT sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+// Initialize the LCD, address 0x3F, 16 chars, 2 line display
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
+
+AsyncWebServer server(80);
+
+bool fanState = false;
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+
+  // Initialize the I2C bus with default pins
+  Wire.begin(); // This uses the default SDA (GPIO 21) and SCL (GPIO 22) pins
+
+  // Initialize the LCD
+  lcd.begin(16, 2);
+  lcd.backlight();
+
+  // Initialize the LED and fan pins
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  pinMode(FAN_PIN, OUTPUT);
+  digitalWrite(FAN_PIN, LOW);
+
+  // Print initial message on LCD
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+
+  // Set up Wi-Fi Access Point
+  WiFi.softAP(ssid, password);
+
+  // Serve the HTML page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    String html = "<!DOCTYPE html><html><body><h1>ESP32 Fan Control</h1><p>Temperature: ";
+    html += String(dht.readTemperature());
+    html += " &deg;C</p><button onclick=\"toggleFan()\">Toggle Fan</button><script>function toggleFan(){var xhttp = new XMLHttpRequest();xhttp.open(\"GET\", \"/toggle\", true);xhttp.send();}</script></body></html>";
+    request->send(200, "text/html", html);
+  });
+
+  // Handle the toggle request
+  server.on("/toggle", HTTP_GET, [](AsyncWebServerRequest *request){
+    fanState = !fanState;
+    digitalWrite(FAN_PIN, fanState ? HIGH : LOW);
+    Serial.println(fanState ? "Fan turned ON" : "Fan turned OFF");
+    request->send(200, "text/plain", "Fan toggled");
+  });
+
+  // Start server
+  server.begin();
+}
+
+void loop() {
+  float temperature = dht.readTemperature();
+
+  if (isnan(temperature)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  Serial.print("Temperature: ");
+  Serial.print(temperature);
+  Serial.println(" *C");
+
+  lcd.setCursor(6, 0);
+  lcd.print(temperature);
+  lcd.print(" C ");
+
+  if (temperature > 27.0) {
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    digitalWrite(LED_PIN, LOW);
+  }
+
+  delay(2000);
+}
